@@ -9,3 +9,7 @@ impl Lerp<f32> for f32 {
       self + t * (other - self)
    }
 }
+
+pub fn deg_to_rad(x: f32) -> f32 {
+   x / 180.0 * std::f32::consts::PI
+}

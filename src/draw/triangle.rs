@@ -10,34 +10,27 @@ use crate::surface::Surface;
 use crate::varying::Varying;
 use crate::vertex::{Position, ToDeviceCoordinates, Viewport};
 
-pub struct TrianglePipeline<'a, M, Vert, Pix, Pbuf, Pos, Vs, Fs, Var>
+pub struct TrianglePipeline<'a, Vert, Pix, Pbuf, Pos, Var>
 where
-   M: Mesh<Vertex = Vert>,
    Vert: Copy + 'static,
    Pix: Pixel,
    Pbuf: Deref<Target = [Pix]> + DerefMut,
    Position<Pos>: ToDeviceCoordinates,
-   Vs: Fn(&Vert) -> (Position<Pos>, Var),
-   Fs: Fn(Var) -> Pix,
    Var: Varying,
 {
-   pub mesh: M,
+   pub mesh: &'a dyn Mesh<Vertex = Vert>,
    pub viewport: Viewport,
    pub color_attachment: &'a mut Surface<Pix, Pbuf>,
-   pub vertex_shader: Vs,
-   pub fragment_shader: Fs,
+   pub vertex_shader: &'a dyn Fn(&Vert) -> (Position<Pos>, Var),
+   pub fragment_shader: &'a dyn Fn(Var) -> Pix,
 }
 
-impl<'a, M, Vert, Pix, Pbuf, Pos, Vs, Fs, Var>
-   TrianglePipeline<'a, M, Vert, Pix, Pbuf, Pos, Vs, Fs, Var>
+impl<'a, Vert, Pix, Pbuf, Pos, Var> TrianglePipeline<'a, Vert, Pix, Pbuf, Pos, Var>
 where
-   M: Mesh<Vertex = Vert>,
    Vert: Copy + 'static,
    Pix: Pixel,
    Pbuf: Deref<Target = [Pix]> + DerefMut,
    Position<Pos>: ToDeviceCoordinates,
-   Vs: Fn(&Vert) -> (Position<Pos>, Var),
-   Fs: Fn(Var) -> Pix,
    Var: Varying,
 {
    fn rasterize_triangle(vertices: &[(f32, f32, Var); 3], mut f: impl FnMut(i32, i32, Var)) {
@@ -58,7 +51,7 @@ where
 
    /// Runs the triangle pipeline.
    pub fn run(&mut self) {
-      self.mesh.each_triangle(|triangle| {
+      self.mesh.each_triangle(&mut |triangle| {
          let positions = [
             (self.vertex_shader)(triangle[0]),
             (self.vertex_shader)(triangle[1]),

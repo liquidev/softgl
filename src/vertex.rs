@@ -26,7 +26,7 @@ pub trait ToDeviceCoordinates {
 /// Convert floating point positions to device coordinates.
 impl ToDeviceCoordinates for Position<f32> {
    fn to_device_coordinates(&self, viewport: &Viewport) -> (i32, i32) {
-      let (x, y) = (self.x / self.w, self.y / self.w);
+      let (x, y) = (self.x, self.y);
       let x = ((x + 1.0) * 0.5) * viewport.width as f32;
       let y = ((-y + 1.0) * 0.5) * viewport.height as f32;
       (x as i32 + viewport.x, y as i32 + viewport.y)

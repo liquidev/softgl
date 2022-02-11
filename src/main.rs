@@ -3,10 +3,13 @@ use std::time::Instant;
 use bytemuck::cast_slice_mut;
 use draw::TrianglePipeline;
 use glam::{Mat4, Vec3, Vec4};
+use math::deg_to_rad;
+use nanorand::Rng;
 use pixelformat::Rgba;
 use pixels::{PixelsBuilder, SurfaceTexture};
 use surface::Surface;
 use vertex::Viewport;
+use wavefront_obj::obj::{self, Primitive};
 use winit::dpi::LogicalSize;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
@@ -29,68 +32,108 @@ struct Vertex {
 }
 
 impl Vertex {
-   fn new(x: f32, y: f32, z: f32, color: (f32, f32, f32)) -> Self {
+   fn new(x: f32, y: f32, z: f32) -> Self {
+      let mut rng = nanorand::tls_rng();
       Self {
          position: Vec3::new(x, y, z),
-         color,
+         color: (
+            rng.generate_range(0..255) as f32 / 255.0,
+            rng.generate_range(0..255) as f32 / 255.0,
+            rng.generate_range(0..255) as f32 / 255.0,
+         ),
       }
    }
 }
 
-fn draw(color: &mut Surface<Rgba<u8>, &mut [Rgba<u8>]>, time: f64) {
-   const RED: (f32, f32, f32) = (1.0, 0.0, 0.0);
-   const GREEN: (f32, f32, f32) = (0.0, 1.0, 0.0);
-   const BLUE: (f32, f32, f32) = (0.0, 0.0, 1.0);
+struct State {
+   model: (Vec<Vertex>, Vec<usize>),
+}
 
-   let mesh = [
-      Vertex::new(-0.5, -0.5, 0.0, RED),
-      Vertex::new(0.5, -0.5, 0.0, GREEN),
-      Vertex::new(0.0, 0.5, 0.0, BLUE),
-   ];
-
-   let model = Mat4::from_rotation_z(time as f32);
-
-   ClearPipeline {
-      surface: color,
-      color: Rgba {
-         r: 0,
-         g: 0,
-         b: 0,
-         a: 255,
-      },
+impl State {
+   fn new() -> anyhow::Result<Self> {
+      Ok(Self {
+         model: Self::load_model(include_str!("assets/suzanne.obj"))?,
+      })
    }
-   .run();
 
-   TrianglePipeline {
-      mesh: &mesh[..],
-      viewport: Viewport {
-         x: 0,
-         y: 0,
-         width: color.width(),
-         height: color.height(),
-      },
-      color_attachment: color,
-      vertex_shader: |vertex| {
-         let position = Vec4::new(vertex.position.x, vertex.position.y, vertex.position.z, 1.0);
-         let position = model * position;
-         (
-            vertex::Position {
-               x: position.x,
-               y: position.y,
-               z: position.z,
-               w: position.w,
-            },
-            vertex.color,
-         )
-      },
-      fragment_shader: |color| Rgba {
-         r: (color.0 * 255.0) as u8,
-         g: (color.1 * 255.0) as u8,
-         b: (color.2 * 255.0) as u8,
-         a: 255,
-      },
+   fn load_model(obj: &str) -> anyhow::Result<(Vec<Vertex>, Vec<usize>)> {
+      let obj = obj::parse(obj)?;
+      let model = &obj.objects[0];
+
+      let mut vertices = Vec::new();
+      for vertex in &model.vertices {
+         vertices.push(Vertex::new(
+            vertex.x as f32,
+            vertex.y as f32,
+            vertex.z as f32,
+         ));
+      }
+
+      let mut indices = Vec::new();
+      for geometry in &model.geometry {
+         for shape in &geometry.shapes {
+            if let Primitive::Triangle((a, ..), (b, ..), (c, ..)) = shape.primitive {
+               indices.push(a);
+               indices.push(b);
+               indices.push(c);
+            }
+         }
+      }
+      Ok((vertices, indices))
    }
-   .run();
+
+   fn draw(&mut self, color: &mut Surface<Rgba<u8>, &mut [Rgba<u8>]>, time: f64) {
+      let model = Mat4::from_scale(Vec3::new(0.25, 0.25, 0.25));
+      let model = model * Mat4::from_rotation_y(time as f32);
+      let projection = Mat4::perspective_rh(
+         deg_to_rad(75.0),
+         color.width() as f32 / color.height() as f32,
+         0.0001,
+         100.0,
+      );
+
+      ClearPipeline {
+         surface: color,
+         color: Rgba {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 255,
+         },
+      }
+      .run();
+
+      TrianglePipeline {
+         mesh: &(self.model.0.as_slice(), self.model.1.as_slice()),
+         viewport: Viewport {
+            x: 0,
+            y: 0,
+            width: color.width(),
+            height: color.height(),
+         },
+         color_attachment: color,
+         vertex_shader: &|vertex| {
+            let position = Vec4::new(vertex.position.x, vertex.position.y, vertex.position.z, 1.0);
+            let position = projection * model * position;
+            (
+               vertex::Position {
+                  x: position.x,
+                  y: position.y,
+                  z: position.z,
+                  w: position.w,
+               },
+               vertex.color,
+            )
+         },
+         fragment_shader: &|(r, g, b)| Rgba {
+            r: (r * 255.0) as u8,
+            g: (g * 255.0) as u8,
+            b: (b * 255.0) as u8,
+            a: 255,
+         },
+      }
+      .run();
+   }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -107,6 +150,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
    let start_time = Instant::now();
 
+   let mut state = State::new()?;
+
    event_loop.run(move |event, _, control_flow| {
       *control_flow = ControlFlow::Poll;
 
@@ -120,7 +165,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let data = pixels.get_frame();
             let mut surface = Surface::from_buffer(width, height, cast_slice_mut(data));
             let time = start_time.elapsed().as_secs_f64();
-            draw(&mut surface, time);
+            state.draw(&mut surface, time);
             if let Err(error) = pixels.render() {
                eprintln!("error: {}", error);
             }
