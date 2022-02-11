@@ -57,17 +57,25 @@ where
       &mut self.data
    }
 
+   fn flat_index(&self, x: u32, y: u32) -> usize {
+      x as usize + y as usize * self.width as usize
+   }
+
    pub fn get(&self, x: u32, y: u32) -> Option<P> {
-      if !(0..self.width).contains(&x) || !(0..self.height).contains(&y) {
+      let index = self.flat_index(x, y);
+      if index >= self.data.len() {
          return None;
       }
-      Some(self.data[x as usize + y as usize * self.width as usize])
+      Some(unsafe { *self.data.get_unchecked(index) })
    }
 
    pub fn set(&mut self, x: u32, y: u32, pixel: P) {
-      if !(0..self.width).contains(&x) || !(0..self.height).contains(&y) {
+      let index = self.flat_index(x, y);
+      if index >= self.data.len() {
          return;
       }
-      self.data[x as usize + y as usize * self.width as usize] = pixel;
+      unsafe {
+         *self.data.get_unchecked_mut(index) = pixel;
+      }
    }
 }

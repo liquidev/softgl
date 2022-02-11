@@ -11,7 +11,7 @@ where
    Pbuf: Deref<Target = [Pix]> + DerefMut,
 {
    pub surface: &'a mut Surface<Pix, Pbuf>,
-   pub color: Pix,
+   pub value: Pix,
 }
 
 impl<'a, Pix, Pbuf> ClearPipeline<'a, Pix, Pbuf>
@@ -22,7 +22,7 @@ where
    /// Runs the clear operation.
    pub fn run(&mut self) {
       self.surface.data_mut().iter_mut().for_each(|c| {
-         *c = self.color;
+         *c = self.value;
       })
    }
 }

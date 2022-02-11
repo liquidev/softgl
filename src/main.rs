@@ -8,6 +8,7 @@ use nanorand::Rng;
 use pixelformat::{Depth, Rgba};
 use pixels::{PixelsBuilder, SurfaceTexture};
 use surface::Surface;
+use texture::Sampler;
 use vertex::Viewport;
 use wavefront_obj::obj::{self, Primitive};
 use winit::dpi::LogicalSize;
@@ -22,25 +23,21 @@ mod math;
 mod mesh;
 mod pixelformat;
 mod surface;
+mod texture;
 mod varying;
 mod vertex;
 
 #[derive(Clone, Copy)]
 struct Vertex {
    position: Vec3,
-   color: (f32, f32, f32),
+   uv: (f32, f32),
 }
 
 impl Vertex {
-   fn new(x: f32, y: f32, z: f32) -> Self {
-      let mut rng = nanorand::tls_rng();
+   fn new(x: f32, y: f32, z: f32, u: f32, v: f32) -> Self {
       Self {
          position: Vec3::new(x, y, z),
-         color: (
-            rng.generate_range(0..255) as f32 / 255.0,
-            rng.generate_range(0..255) as f32 / 255.0,
-            rng.generate_range(0..255) as f32 / 255.0,
-         ),
+         uv: (u, v),
       }
    }
 }
@@ -48,45 +45,74 @@ impl Vertex {
 struct State {
    depth: Surface<Depth<f32>>,
    model: (Vec<Vertex>, Vec<usize>),
+   grass: Surface<Rgba<u8>>,
 }
 
 impl State {
    fn new(width: u32, height: u32) -> anyhow::Result<Self> {
       Ok(Self {
          depth: Surface::new(width, height),
-         model: Self::load_model(include_str!("assets/suzanne.obj"))?,
+         // model: Self::load_model(include_str!("assets/suzanne.obj"))?,
+         model: (
+            vec![
+               Vertex::new(-0.5, 0.5, 0.0, 0.0, 0.0),
+               Vertex::new(-0.5, -0.5, 0.0, 0.0, 1.0),
+               Vertex::new(0.5, 0.5, 0.0, 1.0, 0.0),
+               Vertex::new(0.5, -0.5, 0.0, 1.0, 1.0),
+            ],
+            vec![0, 1, 2, 1, 2, 3],
+         ),
+         grass: Self::load_texture(include_bytes!("assets/grass.png"))?,
       })
    }
 
-   fn load_model(obj: &str) -> anyhow::Result<(Vec<Vertex>, Vec<usize>)> {
-      let obj = obj::parse(obj)?;
-      let model = &obj.objects[0];
+   // fn load_model(obj: &str) -> anyhow::Result<(Vec<Vertex>, Vec<usize>)> {
+   //    let obj = obj::parse(obj)?;
+   //    let model = &obj.objects[0];
 
-      let mut vertices = Vec::new();
-      for vertex in &model.vertices {
-         vertices.push(Vertex::new(
-            vertex.x as f32,
-            vertex.y as f32,
-            vertex.z as f32,
-         ));
-      }
+   //    let mut vertices = Vec::new();
+   //    for vertex in &model.vertices {
+   //       vertices.push(Vertex::new(
+   //          vertex.x as f32,
+   //          vertex.y as f32,
+   //          vertex.z as f32,
+   //       ));
+   //    }
 
-      let mut indices = Vec::new();
-      for geometry in &model.geometry {
-         for shape in &geometry.shapes {
-            if let Primitive::Triangle((a, ..), (b, ..), (c, ..)) = shape.primitive {
-               indices.push(a);
-               indices.push(b);
-               indices.push(c);
-            }
-         }
-      }
-      Ok((vertices, indices))
+   //    let mut indices = Vec::new();
+   //    for geometry in &model.geometry {
+   //       for shape in &geometry.shapes {
+   //          if let Primitive::Triangle((a, ..), (b, ..), (c, ..)) = shape.primitive {
+   //             indices.push(a);
+   //             indices.push(b);
+   //             indices.push(c);
+   //          }
+   //       }
+   //    }
+   //    Ok((vertices, indices))
+   // }
+
+   fn load_texture(png: &[u8]) -> anyhow::Result<Surface<Rgba<u8>>> {
+      let image = image::load_from_memory(png)?.to_rgba8();
+      Ok(Surface::from_buffer(
+         image.width(),
+         image.height(),
+         image
+            .into_raw()
+            .chunks_exact(4)
+            .map(|rgba| Rgba {
+               r: rgba[0],
+               g: rgba[1],
+               b: rgba[2],
+               a: rgba[3],
+            })
+            .collect(),
+      ))
    }
 
    fn draw(&mut self, color: &mut Surface<Rgba<u8>, &mut [Rgba<u8>]>, time: f64) {
       let model = Mat4::from_scale(Vec3::new(0.4, 0.4, 0.4));
-      let model = model * Mat4::from_rotation_y(time as f32);
+      // let model = model * Mat4::from_rotation_y(time as f32);
       let projection = Mat4::perspective_rh(
          deg_to_rad(75.0),
          color.width() as f32 / color.height() as f32,
@@ -96,7 +122,7 @@ impl State {
 
       ClearPipeline {
          surface: color,
-         color: Rgba {
+         value: Rgba {
             r: 0,
             g: 0,
             b: 0,
@@ -107,9 +133,11 @@ impl State {
 
       ClearPipeline {
          surface: &mut self.depth,
-         color: Depth(f32::INFINITY),
+         value: Depth(f32::INFINITY),
       }
       .run();
+
+      let grass = Sampler::new(&self.grass);
 
       TrianglePipeline {
          mesh: &(self.model.0.as_slice(), self.model.1.as_slice()),
@@ -119,8 +147,8 @@ impl State {
             width: color.width(),
             height: color.height(),
          },
-         color_attachment: color,
          depth_attachment: &mut self.depth,
+         color_attachment: color,
          depth_map: &Depth,
          vertex_shader: &|vertex| {
             let position = Vec4::new(vertex.position.x, vertex.position.y, vertex.position.z, 1.0);
@@ -132,15 +160,10 @@ impl State {
                   z: position.z,
                   w: position.w,
                },
-               vertex.color,
+               vertex.uv,
             )
          },
-         fragment_shader: &|(r, g, b)| Rgba {
-            r: (r * 255.0) as u8,
-            g: (g * 255.0) as u8,
-            b: (b * 255.0) as u8,
-            a: 255,
-         },
+         fragment_shader: &|(u, v)| grass.sample(u, v),
       }
       .run();
    }
