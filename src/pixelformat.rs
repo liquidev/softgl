@@ -45,8 +45,8 @@ where
 unsafe impl<T> Pod for Rgba<T> where T: Pod {}
 
 /// Depth format.
-#[derive(Clone, Copy)]
-pub struct Depth<T>(T);
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct Depth<T>(pub T);
 
 impl<T> Default for Depth<T>
 where

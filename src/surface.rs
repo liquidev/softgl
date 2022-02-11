@@ -57,6 +57,13 @@ where
       &mut self.data
    }
 
+   pub fn get(&self, x: u32, y: u32) -> Option<P> {
+      if !(0..self.width).contains(&x) || !(0..self.height).contains(&y) {
+         return None;
+      }
+      Some(self.data[x as usize + y as usize * self.width as usize])
+   }
+
    pub fn set(&mut self, x: u32, y: u32, pixel: P) {
       if !(0..self.width).contains(&x) || !(0..self.height).contains(&y) {
          return;

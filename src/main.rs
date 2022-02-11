@@ -5,7 +5,7 @@ use draw::TrianglePipeline;
 use glam::{Mat4, Vec3, Vec4};
 use math::deg_to_rad;
 use nanorand::Rng;
-use pixelformat::Rgba;
+use pixelformat::{Depth, Rgba};
 use pixels::{PixelsBuilder, SurfaceTexture};
 use surface::Surface;
 use vertex::Viewport;
@@ -46,12 +46,14 @@ impl Vertex {
 }
 
 struct State {
+   depth: Surface<Depth<f32>>,
    model: (Vec<Vertex>, Vec<usize>),
 }
 
 impl State {
-   fn new() -> anyhow::Result<Self> {
+   fn new(width: u32, height: u32) -> anyhow::Result<Self> {
       Ok(Self {
+         depth: Surface::new(width, height),
          model: Self::load_model(include_str!("assets/suzanne.obj"))?,
       })
    }
@@ -83,13 +85,13 @@ impl State {
    }
 
    fn draw(&mut self, color: &mut Surface<Rgba<u8>, &mut [Rgba<u8>]>, time: f64) {
-      let model = Mat4::from_scale(Vec3::new(0.25, 0.25, 0.25));
+      let model = Mat4::from_scale(Vec3::new(0.4, 0.4, 0.4));
       let model = model * Mat4::from_rotation_y(time as f32);
       let projection = Mat4::perspective_rh(
          deg_to_rad(75.0),
          color.width() as f32 / color.height() as f32,
          0.0001,
-         100.0,
+         1000.0,
       );
 
       ClearPipeline {
@@ -103,6 +105,12 @@ impl State {
       }
       .run();
 
+      ClearPipeline {
+         surface: &mut self.depth,
+         color: Depth(f32::INFINITY),
+      }
+      .run();
+
       TrianglePipeline {
          mesh: &(self.model.0.as_slice(), self.model.1.as_slice()),
          viewport: Viewport {
@@ -112,6 +120,8 @@ impl State {
             height: color.height(),
          },
          color_attachment: color,
+         depth_attachment: &mut self.depth,
+         depth_map: &Depth,
          vertex_shader: &|vertex| {
             let position = Vec4::new(vertex.position.x, vertex.position.y, vertex.position.z, 1.0);
             let position = projection * model * position;
@@ -150,7 +160,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
    let start_time = Instant::now();
 
-   let mut state = State::new()?;
+   let mut state = State::new(width, height)?;
 
    event_loop.run(move |event, _, control_flow| {
       *control_flow = ControlFlow::Poll;
